@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="간단한 할 일 앱" />
+    <title>할 일 앱</title>
+    <link rel="stylesheet" href="style.css" />
+    <script type="module" src="script.js"></script>
+  </head>
+  <body>
+    <main class="todo-app">
+      <header class="app-header">
+        <div>
+          <p class="eyebrow">DAILY PLANNER</p>
+          <h1>오늘의 할 일</h1>
+          <p class="subtitle">중요한 일부터 차근차근 완료해 보세요.</p>
+        </div>
+        <time class="today" id="today-date"></time>
+      </header>
+
+      <section class="composer" aria-labelledby="composer-title">
+        <div class="section-heading">
+          <div>
+            <p class="section-label">새로운 일정</p>
+            <h2 id="composer-title">무엇을 해야 하나요?</h2>
+          </div>
+          <span class="priority-guide">높음 24h · 보통 6h · 낮음 1h 전 알림</span>
+        </div>
+
+        <form class="todo-form" id="todo-form">
+          <label class="task-field" for="todo-input">
+            <span>할 일</span>
+            <input
+              id="todo-input"
+              type="text"
+              placeholder="예: 발표 자료 마무리하기"
+              autocomplete="off"
+              maxlength="100"
+              required
+            />
+          </label>
+
+          <div class="form-options">
+            <label>
+              <span>마감기한</span>
+              <input id="deadline-input" type="datetime-local" required />
+            </label>
+            <label>
+              <span>우선순위</span>
+              <select id="priority-input">
+                <option value="high">높음</option>
+                <option value="medium" selected>보통</option>
+                <option value="low">낮음</option>
+              </select>
+            </label>
+          </div>
+
+          <button type="submit" class="add-button">
+            <span aria-hidden="true">＋</span>
+            할 일 추가
+          </button>
+        </form>
+      </section>
+
+      <section class="alerts" id="alerts" aria-live="polite" hidden>
+        <div class="alert-title">
+          <span class="alert-icon" aria-hidden="true">!</span>
+          <h2>확인이 필요한 일정</h2>
+        </div>
+        <ul id="alert-list"></ul>
+      </section>
+
+      <section class="list-section" aria-labelledby="list-title">
+        <div class="list-header">
+          <h2 id="list-title">할 일 목록</h2>
+          <div class="summary" aria-label="할 일 요약">
+            <span><strong id="todo-count">0</strong>개 남음</span>
+            <span class="urgent-summary"><strong id="urgent-count">0</strong>개 임박</span>
+          </div>
+        </div>
+
+        <p class="status" id="status" role="status">할 일을 불러오는 중...</p>
+        <ul class="todo-list" id="todo-list"></ul>
+      </section>
+    </main>
+  </body>
+</html>
