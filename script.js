@@ -230,6 +230,16 @@ function normalizeTodo(todo) {
   };
 }
 
+function dedupeTodos(todos) {
+  const seenIds = new Set();
+
+  return todos.filter((todo) => {
+    if (!todo?._id || seenIds.has(todo._id)) return false;
+    seenIds.add(todo._id);
+    return true;
+  });
+}
+
 function parseDeadline(value) {
   if (!value) return null;
 
@@ -373,6 +383,8 @@ function updateLastSyncTime() {
 }
 
 function renderTodos() {
+  currentTodos = dedupeTodos(currentTodos);
+
   const remaining = currentTodos.filter((todo) => !todo.completed).length;
   const completed = currentTodos.length - remaining;
   const overdue = currentTodos.filter(
