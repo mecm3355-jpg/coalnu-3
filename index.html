@@ -6,8 +6,8 @@
     <meta name="description" content="간단한 할 일 앱" />
     <title>할 일 앱</title>
     <link rel="icon" href="data:," />
-    <link rel="stylesheet" href="style.css" />
-    <script src="script.js" defer></script>
+    <link rel="stylesheet" href="style.css?v=20261012-firebase" />
+    <script src="script.js?v=20261012-firebase" defer></script>
   </head>
   <body>
     <main class="todo-app">
@@ -20,13 +20,17 @@
         <time class="today" id="today-date"></time>
       </header>
 
+      <div class="connection-banner" id="connection-banner" role="alert" hidden>
+        <span>Firebase와 연결이 끊겼습니다.</span>
+        <button type="button" id="connection-retry-button">다시 연결</button>
+      </div>
+
       <section class="composer" aria-labelledby="composer-title">
         <div class="section-heading">
           <div>
             <p class="section-label">새로운 일정</p>
             <h2 id="composer-title">무엇을 해야 하나요?</h2>
           </div>
-          <span class="firebase-note">변경사항 자동 저장</span>
         </div>
 
         <form class="todo-form" id="todo-form">
@@ -37,7 +41,7 @@
               type="text"
               placeholder="예: 발표 자료 마무리하기"
               autocomplete="off"
-              maxlength="100"
+              maxlength="200"
               required
             />
           </label>
@@ -45,21 +49,15 @@
           <div class="form-options">
             <label for="deadline-input">
               <span>마감기한 <strong class="optional-label">선택</strong></span>
-              <input
-                id="deadline-input"
-                type="datetime-local"
-                aria-describedby="deadline-help"
-              />
-              <small class="field-hint" id="deadline-help">
-                마감기한 및 우선순위는 선택입니다.
-              </small>
+              <input id="deadline-input" type="datetime-local" />
             </label>
 
             <label for="priority-input">
-              <span>우선순위</span>
+              <span>우선순위 <strong class="optional-label">선택</strong></span>
               <select id="priority-input">
+                <option value="" selected>선택 안 함</option>
                 <option value="high">높음</option>
-                <option value="medium" selected>보통</option>
+                <option value="medium">보통</option>
                 <option value="low">낮음</option>
               </select>
             </label>
@@ -67,22 +65,78 @@
 
           <button type="submit" class="add-button">
             <span aria-hidden="true">＋</span>
-            할 일 추가
+            <span id="add-label">할 일 추가</span>
           </button>
         </form>
       </section>
 
       <section class="list-section" aria-labelledby="list-title">
         <div class="list-header">
-          <h2 id="list-title">할 일 목록</h2>
-          <div class="summary" aria-label="할 일 요약">
-            <span><strong id="todo-count">0</strong>개 남음</span>
+          <div class="list-title-group">
+            <h2 id="list-title">할 일 목록</h2>
+            <p class="list-help">체크하면 완료로 표시됩니다.</p>
           </div>
+          <div class="summary" aria-label="할 일 요약">
+            <time class="last-sync" id="last-sync">업데이트 전</time>
+            <button type="button" class="sync-button" id="sync-button">
+              <span class="sync-icon" aria-hidden="true">↻</span>
+              <span id="sync-label">새로고침</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="filter-tabs" role="group" aria-label="할 일 필터">
+          <button type="button" class="filter-button active" data-filter="all" aria-pressed="true">
+            전체 <span class="filter-count" id="all-filter-count">0</span>
+          </button>
+          <button type="button" class="filter-button" data-filter="active" aria-pressed="false">
+            진행 중 <span class="filter-count" id="active-filter-count">0</span>
+          </button>
+          <button type="button" class="filter-button" data-filter="completed" aria-pressed="false">
+            완료 <span class="filter-count" id="completed-filter-count">0</span>
+          </button>
+          <button type="button" class="clear-completed-button" id="clear-completed-button" hidden>
+            완료 항목 삭제
+          </button>
+        </div>
+
+        <div class="deadline-summary" id="deadline-summary" role="group" aria-label="마감기한 필터" hidden>
+          <button type="button" class="deadline-summary-button overdue-summary" data-deadline-filter="overdue" aria-pressed="false">
+            기한 초과 <strong id="overdue-count">0</strong>개
+          </button>
+          <button type="button" class="deadline-summary-button today-summary" data-deadline-filter="today" aria-pressed="false">
+            오늘 마감 <strong id="today-due-count">0</strong>개
+          </button>
+        </div>
+
+        <div class="list-tools">
+          <div class="search-field">
+            <span class="search-icon" aria-hidden="true">⌕</span>
+            <label class="sr-only" for="search-input">할 일 검색</label>
+            <input id="search-input" type="search" placeholder="할 일 검색" autocomplete="off" />
+            <button type="button" class="search-clear-button" id="search-clear-button" aria-label="검색어 지우기" hidden>
+              지우기
+            </button>
+          </div>
+          <label class="sort-field" for="sort-select">
+            <span>정렬</span>
+            <select id="sort-select" autocomplete="off">
+              <option value="recommended">추천순</option>
+              <option value="deadline">마감순</option>
+              <option value="priority">우선순위순</option>
+              <option value="newest">최신순</option>
+            </select>
+          </label>
         </div>
 
         <p class="status loading" id="status" role="status">할 일을 불러오는 중...</p>
         <ul class="todo-list" id="todo-list"></ul>
       </section>
     </main>
+
+    <div class="undo-toast" id="undo-toast" role="status" aria-live="polite" hidden>
+      <span id="undo-message"></span>
+      <button type="button" id="undo-button">실행 취소</button>
+    </div>
   </body>
 </html>
