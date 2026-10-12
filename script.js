@@ -74,6 +74,8 @@ let statusTimer;
 let isLoadingTodos = false;
 let undoTimer;
 let pendingUndoTodos = [];
+let pendingUndoReadyPromise = Promise.resolve();
+let pendingUndoVersion = 0;
 
 sortSelect.value = sortMode;
 searchInput.value = "";
@@ -701,20 +703,27 @@ function startEditing(item, todo) {
 
 function hideUndoToast() {
   clearTimeout(undoTimer);
+  pendingUndoVersion += 1;
   pendingUndoTodos = [];
+  pendingUndoReadyPromise = Promise.resolve();
   undoToast.hidden = true;
   undoButton.disabled = false;
   undoButton.textContent = "실행 취소";
 }
 
-function offerUndo(todos, message) {
+function offerUndo(todos, message, { readyPromise = Promise.resolve() } = {}) {
   clearTimeout(undoTimer);
+  const undoVersion = ++pendingUndoVersion;
   pendingUndoTodos = todos.map(normalizeTodo);
+  pendingUndoReadyPromise = Promise.resolve(readyPromise);
   undoMessage.textContent = message;
   undoToast.hidden = false;
   undoButton.disabled = false;
   undoButton.textContent = "실행 취소";
-  undoTimer = setTimeout(hideUndoToast, 6000);
+  undoTimer = setTimeout(() => {
+    if (pendingUndoVersion === undoVersion) hideUndoToast();
+  }, 6000);
+  return undoVersion;
 }
 
 async function restoreTodo(todo) {
@@ -747,11 +756,22 @@ async function undoLastDelete() {
   if (!pendingUndoTodos.length) return;
 
   clearTimeout(undoTimer);
+  const undoVersion = pendingUndoVersion;
   const todosToRestore = [...pendingUndoTodos];
+  const readyPromise = pendingUndoReadyPromise;
   const restoredTodos = [];
   let failedCount = 0;
   undoButton.disabled = true;
   undoButton.textContent = "복원 중…";
+
+  try {
+    await readyPromise;
+  } catch {
+    if (pendingUndoVersion === undoVersion) hideUndoToast();
+    return;
+  }
+
+  if (pendingUndoVersion !== undoVersion) return;
 
   for (const todo of todosToRestore) {
     try {
@@ -780,19 +800,25 @@ async function undoLastDelete() {
 async function deleteTodo(todo, deleteButton) {
   deleteButton.disabled = true;
   deleteButton.textContent = "삭제 중…";
+  const deletedTodo = normalizeTodo(todo);
+  const deletionPromise = request(`${API_URL}/${todo._id}`, {
+    method: "DELETE",
+  });
+
+  currentTodos = currentTodos.filter(
+    (currentTodo) => currentTodo._id !== deletedTodo._id,
+  );
+  renderTodos();
+  const undoVersion = offerUndo([deletedTodo], "할 일을 삭제했습니다.", {
+    readyPromise: deletionPromise,
+  });
 
   try {
-    const deletedTodo = await request(`${API_URL}/${todo._id}`, {
-      method: "DELETE",
-    });
-    currentTodos = currentTodos.filter(
-      (currentTodo) => currentTodo._id !== deletedTodo._id,
-    );
-    renderTodos();
-    offerUndo([deletedTodo], "할 일을 삭제했습니다.");
+    await deletionPromise;
   } catch (error) {
-    deleteButton.disabled = false;
-    deleteButton.textContent = "삭제";
+    if (pendingUndoVersion === undoVersion) hideUndoToast();
+    currentTodos = dedupeTodos([deletedTodo, ...currentTodos]);
+    renderTodos();
     showStatus(error.message, { error: true });
     console.error(error);
   }
