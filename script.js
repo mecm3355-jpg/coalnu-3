@@ -15,6 +15,19 @@ async function startApp() {
   } = await import(
     "https://www.gstatic.com/firebasejs/13.0.0/firebase-database.js"
   );
+  const {
+    EmailAuthProvider,
+    createUserWithEmailAndPassword,
+    deleteUser,
+    getAuth,
+    onAuthStateChanged,
+    reauthenticateWithCredential,
+    signInWithEmailAndPassword,
+    signOut,
+    updateProfile,
+  } = await import(
+    "https://www.gstatic.com/firebasejs/13.0.0/firebase-auth.js"
+  );
 
   const firebaseConfig = {
     apiKey: "AIzaSyCirR2CstlC0D6yTdpCS4XvvHBC3CUf4ns",
@@ -28,9 +41,28 @@ async function startApp() {
 
   const app = initializeApp(firebaseConfig);
   const db = getDatabase(app);
-  const todosRef = ref(db, "todos");
+  const auth = getAuth(app);
   const API_URL = "firebase://todos";
 
+const authView = document.querySelector("#auth-view");
+const authForm = document.querySelector("#auth-form");
+const authName = document.querySelector("#auth-name");
+const authNameField = document.querySelector("#auth-name-field");
+const authEmail = document.querySelector("#auth-email");
+const authPassword = document.querySelector("#auth-password");
+const authPasswordConfirm = document.querySelector("#auth-password-confirm");
+const authPasswordConfirmField = document.querySelector(
+  "#auth-password-confirm-field",
+);
+const authSubmit = document.querySelector("#auth-submit");
+const authStatus = document.querySelector("#auth-status");
+const authModeButtons = document.querySelectorAll("[data-auth-mode]");
+const authHelpText = document.querySelector("#auth-help-text");
+const authHelpButton = document.querySelector("#auth-help-button");
+const todoApp = document.querySelector("#todo-app");
+const accountName = document.querySelector("#account-name");
+const logoutButton = document.querySelector("#logout-button");
+const deleteAccountButton = document.querySelector("#delete-account-button");
 const todoForm = document.querySelector("#todo-form");
 const todoInput = document.querySelector("#todo-input");
 const deadlineInput = document.querySelector("#deadline-input");
@@ -66,6 +98,10 @@ const connectionRetryButton = document.querySelector(
 );
 
 let currentTodos = [];
+let currentUser = null;
+let todosRef = null;
+let unsubscribeTodos = null;
+let authMode = "login";
 let currentFilter = "all";
 let deadlineFilter = "all";
 let sortMode = "recommended";
@@ -76,6 +112,7 @@ let undoTimer;
 let pendingUndoTodos = [];
 let pendingUndoReadyPromise = Promise.resolve();
 let pendingUndoVersion = 0;
+let postAuthMessage = "";
 
 sortSelect.value = sortMode;
 searchInput.value = "";
@@ -98,6 +135,105 @@ todayDate.textContent = new Intl.DateTimeFormat("ko-KR", {
   day: "numeric",
   weekday: "short",
 }).format(new Date());
+
+function setAuthStatus(message = "", { success = false } = {}) {
+  authStatus.textContent = message;
+  authStatus.hidden = !message;
+  authStatus.classList.toggle("success", success);
+}
+
+function setAuthMode(mode) {
+  authMode = mode === "register" ? "register" : "login";
+  const isRegister = authMode === "register";
+
+  authModeButtons.forEach((button) => {
+    const isActive = button.dataset.authMode === authMode;
+    button.classList.toggle("active", isActive);
+    button.setAttribute("aria-selected", String(isActive));
+  });
+
+  authNameField.hidden = !isRegister;
+  authName.required = isRegister;
+  authPasswordConfirmField.hidden = !isRegister;
+  authPasswordConfirm.required = isRegister;
+  authPassword.autocomplete = isRegister ? "new-password" : "current-password";
+  authSubmit.textContent = isRegister ? "회원가입" : "로그인";
+  authHelpText.textContent = isRegister
+    ? "이미 계정이 있으신가요?"
+    : "계정이 없으신가요?";
+  authHelpButton.textContent = isRegister ? "로그인" : "회원가입";
+  authName.value = "";
+  authPassword.value = "";
+  authPasswordConfirm.value = "";
+  setAuthStatus();
+}
+
+function setAuthBusy(isBusy) {
+  authName.disabled = isBusy;
+  authEmail.disabled = isBusy;
+  authPassword.disabled = isBusy;
+  authPasswordConfirm.disabled = isBusy;
+  authSubmit.disabled = isBusy;
+  authModeButtons.forEach((button) => {
+    button.disabled = isBusy;
+  });
+  authSubmit.textContent = isBusy
+    ? authMode === "register"
+      ? "가입 중…"
+      : "로그인 중…"
+    : authMode === "register"
+      ? "회원가입"
+      : "로그인";
+}
+
+function getAuthErrorMessage(error) {
+  const messages = {
+    "auth/email-already-in-use": "이미 가입된 이메일입니다.",
+    "auth/configuration-not-found": "Firebase 콘솔에서 Authentication을 시작하고 이메일 로그인을 활성화해 주세요.",
+    "auth/invalid-credential": "이메일 또는 비밀번호가 올바르지 않습니다.",
+    "auth/invalid-email": "올바른 이메일 주소를 입력해 주세요.",
+    "auth/missing-password": "비밀번호를 입력해 주세요.",
+    "auth/network-request-failed": "네트워크 연결을 확인해 주세요.",
+    "auth/operation-not-allowed": "Firebase 콘솔에서 이메일 로그인을 활성화해 주세요.",
+    "auth/requires-recent-login": "보안을 위해 다시 로그인한 뒤 시도해 주세요.",
+    "auth/too-many-requests": "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.",
+    "auth/user-disabled": "사용이 중지된 계정입니다.",
+    "auth/weak-password": "비밀번호는 8자 이상이어야 합니다.",
+    "auth/wrong-password": "비밀번호가 올바르지 않습니다.",
+  };
+
+  return messages[error?.code] || "인증 요청을 처리하지 못했습니다.";
+}
+
+function stopListeningTodos() {
+  if (unsubscribeTodos) unsubscribeTodos();
+  unsubscribeTodos = null;
+  todosRef = null;
+}
+
+function subscribeToUserTodos(user) {
+  stopListeningTodos();
+  todosRef = ref(db, `users/${user.uid}/todos`);
+  showStatus("할 일을 불러오는 중...", { loading: true });
+
+  unsubscribeTodos = onValue(
+    todosRef,
+    (snapshot) => {
+      const savedTodos = snapshot.val() ?? {};
+      currentTodos = Object.entries(savedTodos).map(([id, todo]) =>
+        normalizeTodo(toClientTodo(id, todo)),
+      );
+      renderTodos();
+      updateLastSyncTime();
+      setConnectionState(true);
+    },
+    (error) => {
+      setConnectionState(false);
+      showStatus("Firebase에서 할 일을 불러오지 못했습니다.", { error: true });
+      console.error(error);
+    },
+  );
+}
 
 function showStatus(message, { error = false, empty = false, loading = false } = {}) {
   clearTimeout(statusTimer);
@@ -146,6 +282,10 @@ async function request(url = API_URL, options = {}) {
   const method = (options.method || "GET").toUpperCase();
 
   try {
+    if (!currentUser || !todosRef) {
+      throw new Error("로그인이 필요합니다.");
+    }
+
     if (method === "GET" && url === API_URL) {
       const snapshot = await get(todosRef);
       const savedTodos = snapshot.val() ?? {};
@@ -175,7 +315,7 @@ async function request(url = API_URL, options = {}) {
     const id = getTodoId(url);
     if (!id) throw new Error("올바르지 않은 할 일 주소입니다.");
 
-    const todoRef = ref(db, `todos/${id}`);
+    const todoRef = ref(db, `users/${currentUser.uid}/todos/${id}`);
 
     if (method === "PUT") {
       await update(todoRef, {
@@ -911,24 +1051,6 @@ todoForm.addEventListener("submit", async (event) => {
   }
 });
 
-onValue(
-  todosRef,
-  (snapshot) => {
-    const savedTodos = snapshot.val() ?? {};
-    currentTodos = Object.entries(savedTodos).map(([id, todo]) =>
-      normalizeTodo(toClientTodo(id, todo)),
-    );
-    renderTodos();
-    updateLastSyncTime();
-    setConnectionState(true);
-  },
-  (error) => {
-    setConnectionState(false);
-    showStatus("Firebase에서 할 일을 불러오지 못했습니다.", { error: true });
-    console.error(error);
-  },
-);
-
 syncButton.addEventListener("click", async () => {
   if (document.querySelector(".edit-fields")) {
     showStatus("수정을 완료하거나 취소한 후 동기화해 주세요.", {
@@ -985,15 +1107,150 @@ filterButtons.forEach((button) => {
   });
 });
 
+authModeButtons.forEach((button) => {
+  button.addEventListener("click", () => setAuthMode(button.dataset.authMode));
+});
+
+authHelpButton.addEventListener("click", () => {
+  setAuthMode(authMode === "login" ? "register" : "login");
+});
+
+authForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const name = authName.value.trim();
+  const email = authEmail.value.trim();
+  const password = authPassword.value;
+
+  if (authMode === "register" && (name.length < 2 || name.length > 30)) {
+    setAuthStatus("이름은 2자 이상 30자 이하로 입력해 주세요.");
+    authName.focus();
+    return;
+  }
+
+  if (authMode === "register" && password !== authPasswordConfirm.value) {
+    setAuthStatus("비밀번호 확인이 일치하지 않습니다.");
+    authPasswordConfirm.focus();
+    return;
+  }
+
+  setAuthBusy(true);
+  setAuthStatus();
+
+  try {
+    if (authMode === "register") {
+      const credential = await createUserWithEmailAndPassword(auth, email, password);
+      await updateProfile(credential.user, { displayName: name });
+      accountName.textContent = name;
+    } else {
+      await signInWithEmailAndPassword(auth, email, password);
+    }
+    authForm.reset();
+  } catch (error) {
+    setAuthStatus(getAuthErrorMessage(error));
+    console.error(error);
+  } finally {
+    setAuthBusy(false);
+  }
+});
+
+logoutButton.addEventListener("click", async () => {
+  logoutButton.disabled = true;
+  postAuthMessage = "로그아웃되었습니다.";
+
+  try {
+    await signOut(auth);
+  } catch (error) {
+    postAuthMessage = "";
+    showStatus(getAuthErrorMessage(error), { error: true });
+    console.error(error);
+  } finally {
+    logoutButton.disabled = false;
+  }
+});
+
+deleteAccountButton.addEventListener("click", async () => {
+  const user = currentUser;
+  if (!user?.email) return;
+
+  const password = window.prompt("회원탈퇴를 위해 현재 비밀번호를 입력해 주세요.");
+  if (password === null) return;
+  if (!password) {
+    window.alert("비밀번호를 입력해 주세요.");
+    return;
+  }
+
+  const confirmed = window.confirm(
+    "회원탈퇴 시 계정과 모든 할 일이 삭제되며 복구할 수 없습니다. 계속할까요?",
+  );
+  if (!confirmed) return;
+
+  deleteAccountButton.disabled = true;
+  logoutButton.disabled = true;
+  showStatus("계정과 기록을 삭제하는 중...", { loading: true });
+
+  try {
+    const credential = EmailAuthProvider.credential(user.email, password);
+    await reauthenticateWithCredential(user, credential);
+    stopListeningTodos();
+    await remove(ref(db, `users/${user.uid}`));
+    postAuthMessage = "회원탈퇴가 완료되었습니다.";
+    await deleteUser(user);
+  } catch (error) {
+    postAuthMessage = "";
+    if (currentUser) subscribeToUserTodos(currentUser);
+    showStatus(getAuthErrorMessage(error), { error: true });
+    console.error(error);
+  } finally {
+    deleteAccountButton.disabled = false;
+    logoutButton.disabled = false;
+  }
+});
+
+onAuthStateChanged(auth, (user) => {
+  stopListeningTodos();
+  currentUser = user;
+  currentTodos = [];
+  currentFilter = "all";
+  deadlineFilter = "all";
+  searchQuery = "";
+  searchInput.value = "";
+  hideUndoToast();
+  connectionBanner.hidden = true;
+  renderTodos();
+
+  if (!user) {
+    todoApp.hidden = true;
+    authView.hidden = false;
+    accountName.textContent = "";
+    authPassword.value = "";
+    authPasswordConfirm.value = "";
+    setAuthStatus(postAuthMessage, { success: Boolean(postAuthMessage) });
+    postAuthMessage = "";
+    window.setTimeout(() => authEmail.focus(), 0);
+    return;
+  }
+
+  authView.hidden = true;
+  todoApp.hidden = false;
+  accountName.textContent =
+    user.displayName || user.email?.split("@", 1)[0] || "사용자";
+  setAuthStatus();
+  subscribeToUserTodos(user);
+});
 
 }
 
 startApp().catch((error) => {
   const statusMessage = document.querySelector("#status");
+  const authStatus = document.querySelector("#auth-status");
   const connectionBanner = document.querySelector("#connection-banner");
   if (connectionBanner) connectionBanner.hidden = false;
-  statusMessage.textContent =
+  const message =
     "Firebase 연결에 실패했습니다. 인터넷 연결과 Firebase 설정을 확인해 주세요.";
-  statusMessage.classList.add("error");
+  if (statusMessage) {
+    statusMessage.textContent = message;
+    statusMessage.classList.add("error");
+  }
+  if (authStatus) authStatus.textContent = message;
   console.error(error);
 });

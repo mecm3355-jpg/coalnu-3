@@ -1,0 +1,17 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "users": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid",
+        "todos": {
+          "$todoId": {
+            ".validate": "newData.hasChildren(['text', 'completed', 'createdAt']) && newData.child('text').isString() && newData.child('text').val().length > 0 && newData.child('text').val().length <= 200 && newData.child('completed').isBoolean() && newData.child('createdAt').isNumber() && (!newData.child('deadline').exists() || newData.child('deadline').isNumber()) && (!newData.child('priority').exists() || newData.child('priority').val() === 'high' || newData.child('priority').val() === 'medium' || newData.child('priority').val() === 'low')"
+          }
+        }
+      }
+    }
+  }
+}
